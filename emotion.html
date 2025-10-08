@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Emotion Tracker</title>
+  <style>
+    body {
+      background: linear-gradient(135deg, #f093b0, #ffffff);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: "Poppins", Arial, sans-serif;
+    }
+    h2 {
+      font-size: 28px;
+      margin-bottom: 20px;
+      text-align: center;
+      color: white;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .video-wrapper {
+      position: relative;
+      width: 480px;
+      height: 360px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+      border-radius: 18px;
+      overflow: hidden;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 480px;
+      height: 360px;
+      border-radius: 18px;
+      object-fit: cover;
+    }
+    video {
+      border: 4px solid #ffffff;
+      z-index: 1;
+    }
+    canvas {
+      z-index: 2;
+      pointer-events: none;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 18px;
+      color: white;
+      white-space: pre-line;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    #emotion {
+      font-size: 22px;
+      margin-top: 10px;
+      color: white;
+      font-weight: bold;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+  </style>
+</head>
+<body>
+  <h2>Emotion Detection Active</h2>
+  <div class="video-wrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="status">Initializing camera...</div>
+  <div id="emotion"></div>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("overlay");
+    const statusEl = document.getElementById("status");
+    const emotionEl = document.getElementById("emotion");
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          video.width = video.videoWidth;
+          video.height = video.videoHeight;
+          loadModels();
+        };
+      } catch (err) {
+        statusEl.textContent = "❌ Camera access error: " + err.message;
+        console.error(err);
+      }
+    }
+
+    async function loadModels() {
+      const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights/";
+      statusEl.textContent = "📦 Loading face-api models...";
+      try {
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+        ]);
+        statusEl.textContent = "✅ Models loaded. Detecting emotions...";
+        detectEmotions();
+      } catch (e) {
+        statusEl.textContent = "❌ Error loading models: " + e.message;
+        console.error(e);
+      }
+    }
+
+    function detectEmotions() {
+      const displaySize = { width: video.width, height: video.height };
+      faceapi.matchDimensions(canvas, displaySize);
+
+      const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+
+      setInterval(async () => {
+        try {
+          const detections = await faceapi
+            .detectAllFaces(video, options)
+            .withFaceExpressions();
+
+          const resized = faceapi.resizeResults(detections, displaySize);
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          faceapi.draw.drawDetections(canvas, resized);
+          faceapi.draw.drawFaceExpressions(canvas, resized);
+
+          if (detections.length > 0) {
+            const expr = detections[0].expressions;
+            const sorted = Object.entries(expr).sort((a, b) => b[1] - a[1]);
+            const [emotion, val] = sorted[0];
+            emotionEl.textContent = `Emotion: ${emotion.toUpperCase()} (${(val * 100).toFixed(1)}%)`;
+          } else {
+            emotionEl.textContent = "No face detected.";
+          }
+        } catch (err) {
+          console.error("Detection error:", err);
+        }
+      }, 700);
+    }
+
+    startCamera();
+  </script>
+</body>
+</html>
